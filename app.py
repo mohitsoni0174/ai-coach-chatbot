@@ -1,80 +1,96 @@
 import streamlit as st
 import os
-from google import genai
 from dotenv import load_dotenv
+from groq import Groq
 
 # 1. Setup & Config
 load_dotenv()
-st.set_page_config(page_title="My AI Chatbot", page_icon="🤖")
-st.title("🤖 My Gemini Assistant")
+st.set_page_config(page_title="My AI COACH", page_icon="🤖")
+st.title("🤖 My Coach")
+# --- UI Customization ---
+st.markdown("""
+    <style>
+        /* 1. Hide the Streamlit Header & Footer */
+        header {visibility: hidden;}
+        .stApp footer {display: none;}
+        
+        /* 2. Main Background Gradient */
+        .stApp {
+            background: linear-gradient(to bottom right, #0f2027, #203a43, #2c5364);
+            color: white;
+        }
+        
+        /* 3. Style the Text Input Box */
+        .stTextInput > div > div > input {
+            background-color: #2c3e50;
+            color: white;
+            border-radius: 20px;
+        }
+    </style>
+""", unsafe_allow_html=True)
+# --- UI CUSTOMIZATION END ---
 
 # Initialize the Client
-# (Make sure your .env file is in the same folder!)
 try:
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 except Exception as e:
-    st.error(f"Error connecting to Google: {e}")
+    st.error(f"Error connecting to Groq: {e}")
 
-# 2. Initialize Memory (Session State)
-# Streamlit refreshes the code every time you click a button.
-# We need 'session_state' to keep the memory alive between refreshes.
+# 2. Initialize Memory
 if "history" not in st.session_state:
     st.session_state.history = []
 
 # 3. Display Previous Chats
-# We loop through the memory and draw the messages on screen
 for message in st.session_state.history:
-    role = message["role"]
-    text = message["parts"][0]["text"]
-    
-    # Translate "model" to "assistant" for Streamlit's icon system
-    display_role = "assistant" if role == "model" else "user"
-    
-    with st.chat_message(display_role):
-        st.markdown(text)
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
 # 4. The Input Box
-# This replaces 'input("You: ")'. It creates a chat box at the bottom.
 prompt = st.chat_input("Type a message...")
 
 if prompt:
-    # A. Display User Message Immediately
+    # A. Display User Message
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    # B. Save User Message to History (Manual Way)
-    user_message = {"role": "user", "parts": [{"text": prompt}]}
-    st.session_state.history.append(user_message)
+    # B. Add to History (Groq Format: simple 'content', not 'parts')
+    st.session_state.history.append({"role": "user", "content": prompt})
 
-    # C. Get Response from Google
+    # C. Get Response
     try:
-        # We send the ENTIRE history (st.session_state.history)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=st.session_state.history,
-            config={
-            # This is the "Brain Implant" for Coaching
-            "system_instruction": """
-                You are a pragmatic AI Coach focused on clear logic and reliability. 
-                Your goal is to help the user solve problems without over-engineering.
-                
-                Follow these rules for every response:
-                1. STRUCTURE: Use bullet points or numbered lists. Avoid walls of text.
-                2. LOGIC: Explain the 'Why' before the 'How'. Use First Principles thinking.
-                3. TONE: Be direct, encouraging, and professional. No fluff.
-                4. RELIABILITY: If you don't know something, admit it immediately. Do not guess.
+        # Define the personality (System Prompt)
+        system_instruction = {
+            "role": "system", 
+            "content": """
+           You are an expert AI Life Coach.
+            Your Goal: Help the user achieve clarity, solve problems, and take action.
+            
+            Guidelines:
+            1. Be encouraging but direct. Don't just chat—drive the conversation forward.
+            2. When the user asks for help, use clear steps or bullet points.
+            3. When the user says "Hi", welcome them warmly as their coach.
+            4. Keep responses concise (under 3-4 sentences) unless explaining a complex plan.
             """
         }
-        )
-        bot_text = response.text
 
-        # D. Display Bot Response
+        # Combine System Prompt + History
+        messages = [system_instruction] + st.session_state.history
+
+        # Call Groq API
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7
+        )
+        
+        # Extract Text
+        bot_text = completion.choices[0].message.content
+
+        # D. Display & Save Bot Response
         with st.chat_message("assistant"):
             st.markdown(bot_text)
             
-        # E. Save Bot Response to History (Manual Way)
-        bot_message = {"role": "model", "parts": [{"text": bot_text}]}
-        st.session_state.history.append(bot_message)
+        st.session_state.history.append({"role": "assistant", "content": bot_text})
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
